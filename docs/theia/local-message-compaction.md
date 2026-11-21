@@ -5,6 +5,8 @@
 
 **목적:** 프로바이더에 의존하지 않는 **로컬(클라이언트) compaction**을 검토·구현할 때, 최종 LLM request가 어떻게 만들어지는지, history가 어디에 끼어드는지, 확장에서 무엇을 고칠 수 있는지, 필요한 요소 기술을 정리한다.
 
+**이 문서의 쓰임:** Theia 로컬 compact 선택지를 정리한 **설계 전 참고**다. JSON 최종 응답의 `compaction` 필드로 history를 줄이려면 §4.5와 **§9**를, JSON 파싱·UI 분리는 [`structured-output-side-effects.md` §8](./structured-output-side-effects.md)를 함께 본다.
+
 ---
 
 ## 한눈에 보기
@@ -16,6 +18,7 @@
 | History → request 변환 핵심 | `AbstractChatAgent.getMessages(session)` → `LanguageModelMessage[]` → `sendLlmRequest` → `LanguageModelService.sendRequest` |
 | 확장에서 가장 직접적인 훅 | Agent 서브클래스에서 `getMessages` / `invoke` override, 또는 core에 `isStale`+`insertSummary` 도입 후 서비스 기여 |
 | Server-side와 관계 | 공존 전제. Local은 Gemini·Chat Completions·임계치 이전 수동 compact·프로바이더 비지원 모델용 |
+| JSON 필드 local compact | 제품 content + `getMessages` prefix (§9). **compact 이후 턴 누적**·wire XML 태그를 설계에 명시 |
 
 ---
 
@@ -450,3 +453,104 @@ Agent-local truncation은 **검증·임시 완화**용이다. 제품 기본 동�
 | Server-side compaction | [`message-compaction.md`](./message-compaction.md) |
 | 실험 local summarization | `git show 803c1ad6a` / branch `origin/feat/budget-aware-chat` |
 | Agent 확장 가이드 | [`adding-ai-agents.md`](./adding-ai-agents.md) |
+| JSON 필드 기반 local compact 설계 | 아래 §9 |
+
+---
+
+## 9. 설계 가이드 — JSON 필드 기반 local compaction
+
+§4.5 Agent-local truncation의 **T2 summary stub**에 가깝다. Upstream `isStale`(#17324)나 provider server-side `CompactionMessage` opaque replay와는 **종류가 다르다.** 모델이 최종 JSON에 optional `compaction` 문자열을 넣고, harness가 다음 요청의 `getMessages`만 줄이는 방식이다.
+
+전제: structured JSON 파싱·`answer` UI 분리가 먼저 동작해야 한다 ([`structured-output-side-effects.md` §8](./structured-output-side-effects.md)).
+
+### 9.1 설계 목표
+
+| 목표 | 의미 |
+|------|------|
+| 토큰 절감 | compact 이전 턴의 원본 transcript를 wire에서 제거 |
+| 연속성 | compact 요약 + 해당 턴 `answer` + **그 이후 누적 대화**로 이어갈 수 있어야 함 |
+| UI 불변 | Chat 패널 transcript는 자르지 않음. 사용자는 기존 `answer` Markdown을 봄 |
+| 프로바이더 중립 | opaque provider marker가 아니라 일반 text message로 전달 |
+
+### 9.2 Wire history 계약 (설계 시 고정)
+
+compaction이 **아직 없으면**:
+
+```text
+기존 AbstractChatAgent.getMessages 전체 턴 누적
+```
+
+최신 제품 compaction이 **있으면** (compact가 기록된 request index = `i`):
+
+```text
+user:      <compaction>{summary}</compaction>
+assistant: <last-response>{that turn's answer}</last-response>
+… requests[i+1 ..] 를 턴 단위로 그대로 직렬화 (누적) …
+```
+
+고정 규칙:
+
+1. **Prefix는 `requests[0..i]`를 대체** — compact 턴 이하의 원본 user/ai는 wire에 넣지 않는다.
+2. **Compact 이후 턴은 반드시 누적** — “prefix + 현재 입력만”으로 설계하면 중간 대화가 사라져 연속성이 깨진다.
+3. **새 compaction이 오면** 그 턴이 새 `i`가 된다. 이전 prefix와 중간 턴은 새 요약에 흡수된다.
+4. **XML 태그는 harness가 붙인다** — 모델은 JSON 필드만 내고 `<compaction>` / `<last-response>`를 직접 쓰지 않는다.
+5. **UI transcript와 wire history는 달라도 된다** — 그 불일치를 스펙·ADR에 명시한다.
+
+### 9.3 영속화·content kind (설계 시 선택할 것)
+
+Agent-local shaping만으로도 PoC는 가능하지만, 세션 재로드 후에도 같은 prefix가 필요하면 **영속화 가능한 ChatResponse content**가 필요하다 (§2.2 deserializer).
+
+권장 content 계약:
+
+| 멤버 | 권장 | 이유 |
+|------|------|------|
+| 전용 `kind` | provider `compaction`과 **다른** 제품 kind | opaque replay·“Conversation compacted” UI와 혼동 방지 |
+| `asString` / `asDisplayString` | `undefined` | 일반 본문·복사에서 제외 |
+| `toLanguageModelMessage` | tagged user + ai text 두 개 | wire prefix |
+| 직렬화 payload | summary 문자열 + compact 턴의 `answer` 원문 | 재로드·재조립 |
+| deserializer | frontend에 contribution 등록 | 없으면 세션 복원 시 경계 소실 |
+
+참고: `hasToLanguageModelMessage`가 있으면 `asString() === undefined`여도 `getMessages`에 포함될 수 있다. **prefix 조립에서만** `toLanguageModelMessage`를 쓰고, 후속 턴 직렬화에서는 제품 compaction content를 제외하도록 필터를 설계한다.
+
+UI에 전용 renderer가 없으면 fallback renderer가 빈 노드를 그릴 수 있다. 필요하면 no-op `ChatResponsePartRenderer`를 설계에 포함한다.
+
+### 9.4 `getMessages` 설계 스케치
+
+```ts
+// 최신 제품 compaction content가 있는 request index 를 찾는다
+if (!compaction) {
+    return super.getMessages(model, includeResponseInProgress);
+}
+
+const messages = [...compaction.toLanguageModelMessage()]; // XML 태그 포함
+for (const request of requests.slice(compactionIndex + 1)) {
+    messages.push(...serializeRequestMessages(request, includeResponseInProgress));
+}
+return messages;
+```
+
+`serializeRequestMessages`는 upstream `getMessages`와 **동일 턴 단위 규칙**이어야 한다 (images, tool_use/result 짝, thinking signature 필터). message 개수 `slice(-N)`은 tool pair를 깨기 쉽다 (§4.5.2).
+
+### 9.5 설계에서 미리 막을 위험
+
+| 위험 | 왜 생기는가 | 설계 시 규칙 |
+|------|-------------|--------------|
+| Compact 이후 턴에서 직전 대화 망각 | prefix + **현재 user만** 반환하도록 단순화 | `requests.slice(i+1)` 전부 누적 직렬화 |
+| 모델이 태그 없는 plain summary만 봄 | wire에 raw 문자열만 넣음 | `<compaction>…</compaction>`, `<last-response>…</last-response>` |
+| Provider compact UI/opaque replay와 충돌 | Theia `CompactionChatResponseContent` kind 재사용 | 제품 전용 kind·별도 replay 규칙 |
+| 세션 리로드 후 경계 소실 | deserializer 미설계 | content 직렬화 + `ChatContentDeserializerContribution`을 범위에 포함 |
+| UI에 요약 전문이 노출 | 본문 Markdown에 compaction을 넣음 | UI는 `answer`만. compaction은 LLM용 content |
+| `<last-response>`와 UI `answer` 불일치 | side effect 오류 문구가 붙은 표시 문자열을 저장 | 저장·wire에는 **구조화 `answer` 원문**만 |
+| Server-side compact와 이중 압축 | 세션 `commonSettings.compaction`과 JSON compact 동시 활성 | 역할·트리거를 분리해 ADR에 명시 |
+| compaction content 자체가 안 생김 | structured 파싱이 usage 등으로 스킵됨 | §8 스트림 세그먼트 규칙을 먼저 만족 |
+
+### 9.6 설계·검증 체크리스트
+
+- [ ] compaction 없음 → 전체 history와 동일함을 스펙/테스트에 적었는가.
+- [ ] compaction 직후 1턴 → prefix + 새 user.
+- [ ] compaction 이후 턴 ≥2 → prefix 뒤에 **모두** 포함.
+- [ ] 두 번째 compaction → 새 prefix만 사용, 이전 transcript는 wire에서 제거.
+- [ ] wire에 XML 태그 존재를 검증 항목으로 두었는가.
+- [ ] Chat UI에는 `answer`만 보이고 요약 전문은 본문에 없는가.
+- [ ] 세션 저장→재오픈 후 순서가 유지되는가 (deserializer 포함).
+- [ ] provider server-side marker와 kind/타입이 분리되어 있는가.

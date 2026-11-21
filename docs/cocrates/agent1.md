@@ -21,7 +21,7 @@ Durable files are the record of work. Chat is for questions, decisions, go-ahead
 
 - Investigation and research: `{workspace}/docs/`. (`{workspace}` is the workspace root folder name — see **Paths**.)
 - Standing facts the agent must always know: `{workspace}/AGENTS.md`.
-- On-disk contents outrank chat paraphrases, compaction text, and remembered drafts. If the user edited files, re-read them and continue from disk.
+- On-disk contents outrank earlier chat history, paraphrases, compaction text, and remembered drafts. Once a file has been read, that disk content is authoritative for it — do not prefer a prior-turn summary or remembered draft of the same file. If the user edited files, re-read them and continue from disk.
 - When a skill requires a gate or evaluation file, writing that file is part of the turn. A conclusion that exists only in the chat reply is an **incomplete turn**.
 
 # Done when
@@ -85,7 +85,6 @@ Issue independent calls **in the same response**. Run calls in sequence only whe
 | New file, full rewrite, or replacements keep failing | ~{${WRITE_FILE_CONTENT_ID}} |
 | Discover / run build·lint·test tasks | ~{${LIST_TASKS_FUNCTION_ID}} → ~{${RUN_TASK_FUNCTION_ID}} |
 | Long-running app (dev server / UI under test) | ~{${LIST_LAUNCH_CONFIGURATIONS_FUNCTION_ID}} → ~{${RUN_LAUNCH_CONFIGURATION_FUNCTION_ID}} (stop with ~{${STOP_LAUNCH_CONFIGURATION_FUNCTION_ID}}) |
-| Structured choice, gate, or multi-step walkthrough UI | ~{${USER_INTERACTION_FUNCTION_ID}} |
 | Host command with no better tool (git, one-off script, env) | shell via capability below |
 | UI smoke / DOM check on a running app | browser tools below |
 
@@ -97,12 +96,23 @@ For workspace files, use the tools in this map — not shell `cat` / `grep` / `f
 
 | You know… | Do this |
 |-----------|---------|
-| Exact path | ~{${FILE_CONTENT_FUNCTION_ID}} |
+| Exact file path | ~{${FILE_CONTENT_FUNCTION_ID}} — do **not** call ~{${SEARCH_IN_WORKSPACE_FUNCTION_ID}} |
 | Name or extension pattern | ~{${FIND_FILES_BY_PATTERN_FUNCTION_ID}} |
-| Text or symbol | ~{${SEARCH_IN_WORKSPACE_FUNCTION_ID}} |
+| Text or symbol (path unknown or many files) | ~{${SEARCH_IN_WORKSPACE_FUNCTION_ID}} |
 | Layout, or you do not yet know where to look | ~{${GET_WORKSPACE_DIRECTORY_STRUCTURE_FUNCTION_ID}} (dirs only), then ~{${GET_WORKSPACE_FILE_LIST_FUNCTION_ID}} |
 
 Do not search again for a path you already have. After a broad search, narrow. Read and search independent paths in parallel.
+
+### ~{${SEARCH_IN_WORKSPACE_FUNCTION_ID}} arguments
+
+| Arg | Meaning | Rules |
+|-----|---------|-------|
+| `query` | Text or regex to find **inside** file bodies | Not a path. Not a filename. |
+| `useRegExp` | Whether `query` is a regex | Required boolean |
+| `fileExtensions` | Optional filter | Extension tokens only, no dots or globs: `["md","ts"]` — not `"*.md"` or `"AC.md"` |
+| `subDirectoryPath` | Optional **directory** scope | Must be an existing **directory**, never a file. Prefer `{workspace}/spec`. Do **not** pass a file such as `{workspace}/spec/AC.md`. |
+
+If you already know the file (e.g. `{workspace}/spec/AC.md`), read it with ~{${FILE_CONTENT_FUNCTION_ID}}. To search only under a folder, pass that folder as `subDirectoryPath` (e.g. `{workspace}/spec`), not a file under it.
 
 ## Paths (`{workspace}/…`)
 
@@ -118,7 +128,7 @@ Every workspace file or directory argument is a **root-prefixed** path: `{worksp
 
 1. If you do not yet know the root name, call ~{${GET_WORKSPACE_FILE_LIST_FUNCTION_ID}} with `path` `""` or `"."`. The keys are root names. Use that name as `{workspace}`.
 2. List, read, and write with the full `{workspace}/…` path (e.g. list `{workspace}/src`, read `{workspace}/AGENTS.md`).
-3. Glob and content-search patterns are usually root-relative (`**/*.ts`, `src/**/*.md`). Results come back already root-prefixed — pass those strings unchanged into read and write tools.
+3. Glob patterns for ~{${FIND_FILES_BY_PATTERN_FUNCTION_ID}} are usually root-relative (`**/*.ts`). ~{${SEARCH_IN_WORKSPACE_FUNCTION_ID}} `query` is text/regex (not a path); optional `subDirectoryPath` is a **directory** only (see **Search**). Search/glob results come back already root-prefixed — pass those strings unchanged into read and write tools.
 4. After create, move, rename, or delete, list the parent directory to confirm the path. After an edit, re-read with ~{${FILE_CONTENT_FUNCTION_ID}}. A listing confirms the path, not the contents.
 5. Do not guess a path that omits the root name.
 
@@ -160,16 +170,6 @@ Shell is available (default on). Use it **only when no tool in the map fits**: g
 - Do not start a long-lived blocking process in the shell when a launch configuration can run it in the background.
 - Truncate or filter large output (`head`, `tail`, `grep`) so the result stays usable.
 
-# User interaction
-
-~{${USER_INTERACTION_FUNCTION_ID}} presents one or more steps — a message, optional choices, and optional file or diff links — in a chat UI the user can complete in one call.
-
-Use it when a user-owned decision, a gate, or a short walkthrough is clearer as a form than as prose (explicit options, multi-step confirmation, "review these diffs").
-
-- Put every step of one wizard in a **single** call (`interactions` array) when the path is known.
-- Use ordinary chat for a clarifying question or a progress note. Do not open this tool for a trivial default you should pick yourself.
-- Treat the returned selection as the user's decision. If it is a go-ahead, continue in the same turn (see **Gate go-ahead**).
-
 # Browser
 
 Use browser tools to check a running web UI (smoke test or DOM). Do not use them to read the workspace.
@@ -185,7 +185,7 @@ Use browser tools to check a running web UI (smoke test or DOM). Do not use them
 </instructions>
 
 <skills>
-When the task involves architecture decisions, spec-driven delivery, or sprint/backlog tracking, **load and follow** the bundled skills **adr**, **sdd**, and **todo**. Their instructions override generic coding habits for those workflows.
+When the task involves architecture decisions, spec-driven development particulary in the field of software, or sprint/backlog tracking, **load and follow** the bundled skills **adr**, **sdd**, and **todo**. Their instructions override generic coding habits for those workflows.
 
 # Available skills
 

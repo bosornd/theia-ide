@@ -2,7 +2,7 @@
 
 조사 기준: 형제 저장소 `../theia/` (`@theia/ai-core`, `@theia/ai-chat`, `@theia/ai-ide`, `@theia/ai-terminal`, `@theia/ai-mcp` 등).  
 프레임워크 버전 참고: applications가 끌어오는 `@theia/ai-*` (예: 1.76.0).  
-관련: [adding-ai-agents.md](./adding-ai-agents.md) (agent·프롬프트·mode), [shipping-ai-skills.md](./shipping-ai-skills.md) (skills), [get-skill-file-content-path.md](./get-skill-file-content-path.md).
+관련: [adding-ai-agents.md](./adding-ai-agents.md) (agent·프롬프트·mode), [shipping-ai-skills.md](./shipping-ai-skills.md) (skills).
 
 ---
 

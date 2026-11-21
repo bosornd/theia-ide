@@ -5,6 +5,8 @@
 
 **목표 시나리오:** LLM이 `{ answer, session?, commit?, … }` JSON을 내고, 채팅 UI에는 `answer`만 보이며 나머지 필드는 제품 코드가 처리(세션 제목 변경, git commit 등).
 
+**이 문서의 쓰임:** Theia 1.77 제약과 선택지를 정리한 **설계 전 참고**다. prompt-only JSON 경로를 택할 경우 §8을, history에 `compaction`을 둘 경우 [`local-message-compaction.md` §9](./local-message-compaction.md)를 함께 본다.
+
 ### 용어 (`response` vs `answer`)
 
 | 이름 | 층 | 의미 |
@@ -30,6 +32,7 @@
 | Side effect | 같은 오버라이드에서 필드 처리 **또는** (권장) **Tool**로 rename/commit 등 수행 |
 | 세션 제목 | 이미 `ChatSessionNamingAgent` + `ChatService.renameSession` 존재. JSON `session` 필드와 **역할 중복 주의** |
 | 스트리밍 + schema | OpenAI structured 경로는 **비스트리밍·Chat Completions `parse`만**. 공식 모델 기본 **Response API**에서는 schema **미연결**. 채팅에 점진 JSON 필드 분리 API 없음 |
+| 옵션 3 설계 포인트 | 스트림 **완료 후** trailing text만 파싱. usage 토큰을 세그먼트 경계로 쓰지 말 것 (§8) |
 
 ---
 
@@ -301,3 +304,67 @@ Commit만이면 **non-chat `CommitMessageAgent` 패턴** 또는 dedicated tool�
 
 - **단일 structured JSON + UI에 제품 필드 `answer`만:** 커스텀 ChatAgent에서 `response_format` + `addContentsToResponse`로 `parsed`를 직접 소비 (Terminal + Orchestrator 패턴 결합). Completions 전제·비스트리밍·tools 병행 제약을 감수하고, Response API 모델에서는 폴백 파싱을 준비.
 - **Theia에 더 맞는 분리:** 사용자 문구는 일반(스트리밍) **ChatResponse 본문**, `session`/`commit` 등은 **Tool**(또는 기존 NamingAgent / CommitMessageAgent)로 처리.
+- **스키마 강제 없이 단일 JSON 계약을 유지하려면:** 옵션 3 + §8의 스트림·세그먼트·side effect 경계를 설계에 명시한다.
+
+---
+
+## 8. 설계 가이드 — 옵션 3 (prompt-only JSON)
+
+`response_format`과 structured tool call에 의존하지 않고, 시스템 프롬프트로 최종 JSON object를 요구한 뒤 **응답 완료 텍스트를 파싱**하는 경로다. 제공자 호환성은 높지만 schema 강제가 없고, Theia 기본 스트림 루프를 그대로 두면 파싱이 조용히 스킵되기 쉽다.
+
+### 8.1 권장 책임 분리
+
+| 책임 | 권장 경계 |
+|------|-----------|
+| 최종 텍스트에서 JSON 추출·검증 | Agent와 분리된 순수 파서 (`answer: string` 필수, optional 필드는 타입 가드) |
+| UI 본문 | 파싱 성공 시 `answer`만 `MarkdownChatResponseContent`. 실패 시 기존 `parseContents` Markdown 폴백 |
+| `session` / `commit` 등 side effect | 파서와 분리된 어댑터. 실패해도 `answer` 표시는 유지하고 오류만 별도 수집 |
+| `compaction` | 별도 ChatResponse content + `getMessages` shaping ([`local-message-compaction.md` §9](./local-message-compaction.md)) |
+
+ChatAgent의 훅은 `addContentsToResponse`(및 스트림 소비 override)다. 글로벌 response transformer는 없다 (§2).
+
+### 8.2 스트림 설계 (세그먼트 모델)
+
+OpenAI 등 tool loop는 **한 AsyncIterable** 안에 text / tool_call / thinking / usage를 섞어 보낸다. upstream `AbstractStreamParsingChatAgent.addStreamResponse`는 non-text마다 텍스트 버퍼를 비운다. 옵션 3을 붙일 때는 다음을 전제로 설계한다.
+
+```text
+스트림 토큰
+  ├─ text          → trailing text 버퍼에 누적 (중간 UI는 임시 Markdown 가능)
+  ├─ usage         → 토큰 사용량만 기록. 세그먼트 경계로 취급하지 않음 ★
+  ├─ tool/thinking → content로 보존. 여기서 trailing text 세그먼트를 리셋
+  └─ 스트림 종료
+        ├─ trailing text 없음 → structured 파싱 없음 (예: tool로 끝난 중간 턴)
+        └─ trailing text 있음 → 그 세그먼트만 JSON 후보
+              성공 → 앞선 tool/thinking content 유지 + answer(및 side effect)
+              실패 → 일반 Markdown 폴백
+```
+
+비스트림(`text` / `content` / Parsed의 문자열)도 **같은 파서·같은 UI/side-effect 경계**로 모은다.
+
+### 8.3 설계에서 미리 막을 위험
+
+| 위험 | 왜 생기는가 | 설계 시 규칙 |
+|------|-------------|--------------|
+| 유효 JSON인데 UI에 raw JSON이 남고 side effect 미실행 | 최종 텍스트 **뒤**에 `usage`가 온다. “모든 non-text에서 버퍼 clear”를 복사하면 종료 시 후보 문자열이 비어 파싱이 스킵된다 | **usage(및 빈 content 배열)는 세그먼트 경계가 아니다.** content-bearing non-text만 경계를 연다 |
+| tool loop 턴에서 최종 JSON이 무시됨 | “스트림에 tool이 한 번이라도 있으면 structured 금지”로 가드하면 같은 스트림의 **마지막 텍스트 세그먼트**까지 버린다 | **trailing text만** 파싱. 중간 tool content는 세그먼트 시작 인덱스 앞에 보존 |
+| progress + JSON을 한 번에 `JSON.parse` | 실행 중 일반 텍스트와 최종 object가 한 버퍼에 섞임 | 파싱 후보는 **마지막 세그먼트**. fenced 또는 `{`…`}` 추출 폴백을 명시 |
+| side effect 실패 시 본문도 안 보임 | 파싱과 side effect를 한 트랜잭션처럼 묶음 | 파싱 성공 후 `answer`는 항상 UI에 추가. side effect 오류는 독립 기록(예: blockquote) |
+| commit이 SCM/권한과 어긋남 | shell/git 프로세스를 ChatAgent에서 직접 실행 | Theia SCM (`input.value` + `acceptInputCommand`) 등 기존 경계 (`docs/theia/scm-commit-adapter.md`) |
+| 재시도·재시작 시 중복 commit | 실행 상태 미영속 | 제품 로컬 저장소에 `in-flight` / `succeeded` / `failed`와 요청·repo·message 키 |
+| 부분 스트림에서 session/commit 실행 | 미완성 JSON을 구조화 성공으로 취급 | **스트림 완료 후에만** side effect. 부분 파싱 금지 |
+
+### 8.4 UI·스트리밍 UX 트레이드오프
+
+- 완료 전 `parseContents`로 임시 본문을 그리면 partial JSON이 잠깐 보일 수 있다. 완료 후 `answer`로 교체하는 전제를 스펙에 적는다.
+- 완료 전 UI를 비우면 깜빡임은 없으나 체감 지연이 커진다. 둘 중 하나를 ADR/스펙에 고른다.
+- Theia 스트림 계약에 명시적 completion 파트가 없으면, iterator 종료를 완료로 보게 된다. 조기 종료 감지 필요 여부를 설계 단계에서 결정한다.
+
+### 8.5 설계·검증 체크리스트 (구현 착수 전/직후)
+
+- [ ] stream / text / Parsed 문자열 경로가 **동일 파서·동일 UI 규칙**을 쓰는가.
+- [ ] synthetic 스트림 `text → usage`에서 파싱이 수행되는가 (usage가 버퍼를 지우지 않는가).
+- [ ] synthetic 스트림 `tool → text(JSON)`에서 tool UI는 유지되고 본문만 `answer`인가.
+- [ ] malformed / `answer` 없는 object는 일반 Markdown 폴백인가.
+- [ ] UI에 `session` / `commit` / `compaction` raw 필드가 노출되지 않는가.
+- [ ] `compaction`을 쓸 경우 [`local-message-compaction.md` §9](./local-message-compaction.md)의 wire 순서를 스펙에 적었는가.
+- [ ] commit 멱등·SCM 어댑터·NamingAgent와의 역할 중복을 ADR에 적었는가.

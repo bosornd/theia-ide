@@ -4,11 +4,10 @@ description: >-
   Manages deliverable progress with Scrum boards — initialize, track sprint tasks
   in TODO.md, sync with workspace artifacts, and pick the next actionable task.
   Maintains scrum/product-backlog.md (story status), sprint-NN.md (plans),
-  and scrum/TODO-NN.md (closed-sprint archives). Sprint plan approval and sprint
-  completion (execution approval) are required user gates before Execute and
-  Sprint Boundary. Use when starting or resuming a deliverable session, progress
-  or next-step questions, sprint/backlog planning, or alongside any deliverable
-  workflow.
+  and scrum/TODO-NN.md (closed-sprint archives). Sprint plan approval and Sprint
+  Boundary (end-of-sprint review + archive) are the only required user gates.
+  Use when starting or resuming a deliverable session, progress or next-step
+  questions, sprint/backlog planning, or alongside any deliverable workflow.
 ---
 
 # TODO — Deliverable Progress Tracking
@@ -39,34 +38,35 @@ Work advances only after something checkable is done. Prefer units that unlock t
 | **Sprint plan** | Goal, Scope (`PB-*` subset), DoD, Demo Checklist | Light Scope: enough to meet Goal + Demo — not “finish the backlog.” Plan fields are not edited during execution to “mark done.” |
 | **Execution board** (`T-*`) | Current-sprint tasks derived from Scope + companion workflow | Live only on `TODO.md`. Heavy work (refactors, rewrites, migrations) must appear as explicit `PB-*` / `T-*`, not silent side work. |
 
-Flow: backlog → light Scope (after **Sprint plan approval**) → seed `TODO.md` → Execute / Sync → **Sprint completion** → **Sprint Boundary** (archive, update backlog, load next approved plan).
+Flow: backlog → light Scope (after **Sprint plan approval**) → seed `TODO.md` → Execute / Sync → **Sprint Boundary** (review gate on the boundary task → archive, update backlog, load next approved plan).
 
 ### User gates
 
 ```
-Sprint plan approval → Execute → Sprint completion → Sprint Boundary
+Sprint plan approval → Execute → Sprint Boundary
 ```
 
-Both gates need **go-ahead** for the named gate (accept the recommended plan/outcome and authorize the next step). Natural language is enough — e.g. ok, continue, next, 계속해줘, 승인할게 — do **not** require the literal words “approve”. Silence, unrelated chat, or picking the next task without proceed intent is **not** approval. On go-ahead: record the gate **and** run the authorized next action in the **same turn** (seed Execute / Boundary / companion draft) — do not stop after approval alone. Task-level companion gates (draft → gate `[x]`) still apply inside Execute; they do not replace these sprint gates.
+Both gates need **go-ahead** for the named gate (accept the recommended plan/outcome and authorize the next step). Natural language is enough — e.g. ok, continue, next, 계속해줘, 승인할게 — do **not** require the literal words “approve”. Silence, unrelated chat, or picking the next task without proceed intent is **not** approval. On go-ahead: record the gate **and** run the authorized next action in the **same turn** (seed Execute / Boundary archive / companion draft) — do not stop after approval alone. Task-level companion gates (draft → gate `[x]`) still apply inside Execute; they do not replace these sprint gates.
 
 | Gate | When | Present | Until approved, do **not** |
 |------|------|---------|----------------------------|
 | **Sprint plan approval** | After drafting or revising `sprint-NN.md` | Goal, Scope, DoD, Demo Checklist | Seed/rewrite live `TODO.md` for that sprint, or **Execute** on it |
-| **Sprint completion** | Boundary task is Current focus / Recommended next (or Recovery) | Goal vs outcome, Scope/DoD/Demo status, carry-over / skip proposals | Run **Sprint Boundary** |
+| **Sprint Boundary** | Boundary task is Current focus / Recommended next (or Recovery) | Goal vs outcome, Scope/DoD/Demo status, carry-over / skip proposals | Archive board, update backlog, or load the next sprint |
 
-Revising Goal/Scope/DoD/Demo after approval requires a fresh **Sprint plan approval**.
+Do **not** add a separate end-of-sprint user gate or `T-*` for “Sprint completion” / “execution approval”. The **boundary task** is that gate. Revising Goal/Scope/DoD/Demo after approval requires a fresh **Sprint plan approval**.
 
 ### Boundary task
 
-The **boundary task** is the last open task on every seeded/rewritten live board. It is the sprint’s exit ramp — not ordinary scope work.
+The **boundary task** is the last open task on every seeded/rewritten live board. It is the sprint’s exit ramp **and** the sole end-of-sprint user gate — not ordinary scope work, and not paired with a second completion task.
 
 | Rule | Guidance |
 |------|----------|
 | **Always last** | No `T-*` after it. Mid-sprint additions go before it; extend its Depends. |
-| **When selected** | Run **Sprint completion** first; after approval, **Sprint Boundary**. Mark `[x]` on live `TODO.md` **before** archiving (so the board never looks mid-boundary). |
+| **Sole end gate** | Seed exactly one trailing boundary task. Never seed a sibling “complete sprint” / “execution approval” task. |
+| **When selected** | Present the **Sprint Boundary** gate (completion review). After go-ahead, run **Sprint Boundary** archive/backlog steps. Mark `[x]` on live `TODO.md` **before** archiving (so the board never looks mid-boundary). |
 | **Depends** | Prefer every other planned `T-*`. If only the last scope/demo gate is listed, Sync must not leave earlier open tasks when that gate closes. |
 | **Final sprint** | Title `Sprint Boundary → complete`. Archive + close backlog; do not invent a next sprint. |
-| **Recovery** | Live board has no open tasks and no boundary task → treat as end-of-sprint (completion → Boundary). Re-seed always includes a boundary task. |
+| **Recovery** | Live board has no open tasks and no boundary task → treat as end-of-sprint (Boundary gate → archive). Re-seed always includes a boundary task. |
 
 ---
 
@@ -83,7 +83,7 @@ The **boundary task** is the last open task on every seeded/rewritten live board
 | "where are we?" / "what's next?" | **Report** from `TODO.md` (+ backlog if product-wide) |
 | Scope change within sprint | **Sync** |
 | Backlog / sprint plan needed | **Plan** / **Plan Next** → plan approval before activate/Execute |
-| Boundary task is Current focus / Recommended next | **Sprint completion** → after approval, **Sprint Boundary** |
+| Boundary task is Current focus / Recommended next | **Sprint Boundary** (present review gate → after go-ahead, archive) |
 
 ### Initialize
 
@@ -112,7 +112,7 @@ Use when `{workspace}/TODO.md` is missing (new deliverable). Companion skills (e
 3. Gate → `[x]` only with user go-ahead (batch: flip matching headlines in place).
 4. After a gate `[x]` **in the same turn**: continue the authorized next step (companion **draft**, Sync, or Boundary when go-ahead covers it) and produce the next gate/draft artifact unless the user asked to pause. Approval-only replies with no next-step work are incomplete.
 5. Refresh Snapshot → **Sync**.
-6. If Current focus / Recommended next is the boundary task → **Sprint completion** (do not jump to Boundary).
+6. If Current focus / Recommended next is the boundary task → **Sprint Boundary** (present the review gate; do not archive until go-ahead).
 
 Research may run in parallel while a gate waits **only if** the user asks (or the companion skill requires it) — it does not close or bypass the gate.
 
@@ -133,27 +133,24 @@ Research may run in parallel while a gate waits **only if** the user asks (or th
 
 **Plan Next:** If next `sprint-NN.md` is missing (or user pre-plans): pick open/carried Stories (or draft the next Spec→backlog Scope when requirements change) → create the plan → present for **Sprint plan approval** (now or defer until Boundary — silence ≠ approval). Do not rewrite live `TODO.md` until that sprint starts **and** the plan is approved.
 
-### Sprint completion
+### Sprint Boundary
 
-**When:** Boundary task is Current focus / Recommended next, or Recovery.
+**When:** Boundary task is Current focus / Recommended next, or Recovery. This is the end-of-sprint **user gate** and the archive procedure — not two tasks and not a separate “Sprint completion” step.
+
+**Gate (before archive):**
 
 1. Present completion review: Goal outcome, each Scope `PB-*` (met DoD / carry-over / skip), Demo evidence, any incomplete open `T-*`.
 2. Propose backlog actions — do not apply them yet.
-3. **Stop** for execution go-ahead. Do not run Boundary in the same turn unless the user already gave go-ahead in that message.
+3. **Stop** for Boundary go-ahead. Do not archive or rewrite in the same turn unless the user already gave go-ahead in that message.
 4. Do not invent filler `T-*` or auto-`[x]` remaining work. Incomplete scope → carry-over or explicit skip only with user intent.
-5. After approval → **Sprint Boundary**.
 
-### Sprint Boundary
-
-**When:** After **Sprint completion** only.
-
-**Order (required):** close the boundary on live `TODO.md` first, then archive that completed board. Never mark `[x]` only on the archive while leaving live open — that makes `TODO.md` look like Boundary never finished.
+**Order after go-ahead (required):** close the boundary on live `TODO.md` first, then archive that completed board. Never mark `[x]` only on the archive while leaving live open — that makes `TODO.md` look like Boundary never finished.
 
 1. Close boundary on live board: mark the boundary task `[x]` on `TODO.md`; refresh Snapshot (Done/Open, Current focus / Recommended next → `—` or next-sprint pending). Do **not** rewrite the task list yet.
 2. Archive: copy the now-closed `TODO.md` → `scrum/TODO-{NN}.md` (exact copy; do not edit the archive after copy).
 3. Backlog: met DoD → `[x]`; intentionally dropped → `[x]` + `_(skipped)_`; incomplete → carry-over (leave `[ ]`, set **Sprint** to next or `—`, note in both boards' Notes). Bump backlog **Updated:**.
 4. Append **Completed sprints** row on live `TODO.md` (Goal, Closed date, Archive link).
-5. Next plan **exists and approved:** rewrite live `TODO.md` from that plan — assign tasks **`T-001`, `T-002`, …** in board order (reset IDs every sprint; do **not** continue from the archived board’s last `T-*`); new trailing boundary task; **keep** Completed sprints; do not leave the closed task list on the live board.
+5. Next plan **exists and approved:** rewrite live `TODO.md` from that plan — assign tasks **`T-001`, `T-002`, …** in board order (reset IDs every sprint; do **not** continue from the archived board’s last `T-*`); new trailing boundary task only (no completion sibling); **keep** Completed sprints; do not leave the closed task list on the live board.
 6. Next plan **missing or unapproved:** **Plan Next** / present for plan approval; rewrite only after approval (same `T-001…` reset on seed).
 
 After Boundary (and next-plan approval when needed), Current focus / Recommended next come from the new sprint’s seeded tasks.
@@ -182,7 +179,7 @@ After Boundary (and next-plan approval when needed), Current focus / Recommended
 | Sprint plan | `{workspace}/scrum/sprint-NN.md` | Goal, Scope, DoD, Demo — plan only. Zero-pad (`sprint-00.md`, …). Scope = committed `PB-*` only. Not a second progress board. Do not edit Goal/DoD/Demo during execution to “mark done.” |
 | Closed board | `{workspace}/scrum/TODO-NN.md` | Exact copy of `TODO.md` **after** the boundary task is `[x]` (and Snapshot refreshed), before the live rewrite. Immutable after a successful copy. |
 
-Demo Checklist items on the plan should appear as gate tasks on `TODO.md`. Seed tasks from Scope + companion workflow; end with a boundary task.
+Demo Checklist items on the plan should appear as gate tasks on `TODO.md`. Seed tasks from Scope + companion workflow; end with a **single** boundary task (no separate completion/`execution approval` `T-*`).
 
 ---
 
@@ -224,7 +221,7 @@ Use checkboxes + Current focus only — no `pending` / `in_progress` / `done` to
   - Phase: cross-cutting
   - Artifact: `scrum/TODO-{NN}.md`
   - Depends: {prefer every other planned T-*; else the last scope/demo gate}
-  - Notes: archive board, update backlog, load next sprint
+  - Notes: end-of-sprint gate (review + go-ahead) → archive board, update backlog, load next sprint
 ```
 
 ### TODO.md
